@@ -422,7 +422,7 @@ const ICR=[
 [/\b(bags?|pouch(es)?|polybags?|covers?|sack|garbage|dustbin)\b/,'bag','a'],
 [/\b(ball ?pens?|pens?|pencils?|ballpoint|ball-point|gel|refills?|fountain|nibs?)\b|पेन|पेंसिल/,'pen','b']];
 const ICD=[null,'box','a'];
-const icoOf=n=>{const s=String(n||'').toLowerCase();return ICR.find(r=>r[0].test(s))||ICD};
+const _ic=new Map();const icoOf=n=>{const s=String(n||'').toLowerCase();let r=_ic.get(s);if(!r){r=ICR.find(x=>x[0].test(s))||ICD;if(_ic.size>3000)_ic.clear();_ic.set(s,r)}return r};
 const tile=(n,sz)=>{const t=String(n||'').trim(),r=icoOf(t);return `<span class="ti ${t?'t-'+r[2]:'t-n'}${sz?' '+sz:''}" aria-hidden="true"><svg viewBox="0 0 24 24">${ICO[r[1]]}</svg></span>`};
 const inm=(i,nc)=>{i=i||{};return `<div class="nm">${tile(i.name)}<span class="nt"><b>${esc(i.name||'')}</b>${nc||!i.code?'':`<small>${esc(i.code)}</small>`}</span></div>`};
 const KI={alert:'<path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.5h.01"/>',layers:'<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 12.5l9 5 9-5M3 17l9 5 9-5"/>',rupee:'<path d="M7 5h10M7 9h10"/><path d="M9 5c4.5 0 6 2 6 4s-1.5 4-6 4H7l8 7"/>',arrow:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>'};
@@ -447,8 +447,10 @@ const NAV=[['dash','Dashboard'],['myreq','My Requests'],['rq','Requests'],['item
 function seed(){const s={co:[{id:1,name:'Poona Travels'}],sites:[{id:1,co:1,name:'Pune HQ'}],emp:[{id:1,code:'E001',name:'Employee A',site:1,dept:'Operations'},{id:2,code:'E002',name:'Employee B',site:1,dept:'Accounts'}],sup:[{id:1,name:'Sample Stationers'}],items:[{id:1,code:'PEN-01',name:'Ball Pen',unit:'Nos',min:20,rate:10},{id:2,code:'NB-01',name:'Notebook',unit:'Nos',min:10,rate:45},{id:3,code:'PPR-01',name:'A4 Paper Ream',unit:'Reams',min:5,rate:260},{id:4,code:'FIL-01',name:'File Folder',unit:'Nos',min:10,rate:30}],led:[],buys:[],issues:[],seq:{},nid:100,sample:true,users:[],audit:[],reqs:[],cu:[],drv:[],cfg:null};
 [[1,100],[2,30],[3,10],[4,25]].forEach(([i,q])=>s.led.push({no:'OPN-'+i,date:today(),type:'Opening',item:i,qty:q,ref:'Opening balance',by:USER}));return s}
 const blank=()=>({co:[],sites:[],emp:[],sup:[],items:[],led:[],buys:[],issues:[],seq:{},nid:100,sample:false,users:[],audit:[],reqs:[],cu:[],drv:[],cfg:null});
-const stock=id=>S.led.filter(l=>l.item==id).reduce((a,l)=>a+l.qty,0);
-const item=id=>S.items.find(i=>i.id==id)||{};
+let _sm=null,_fm=null;
+const _lv=()=>{const L=S.led;if(!_sm||_sm.L!==L||_sm.n!==L.length){const m={},f={};for(let i=0;i<L.length;i++){const l=L[i],k=l.item;m[k]=(m[k]||0)+l.qty;const o=f[k]||(f[k]={tot:0,out:0,ret:0});if(l.type=='Issue')o.out-=l.qty;else if(l.type=='Return'||(l.type=='Reversal'&&l.qty>0))o.ret+=l.qty;else o.tot+=l.qty}_sm={L,n:L.length,m,f}}return _sm};
+const stock=id=>_lv().m[id]||0;
+let _im=null;const item=id=>{const A=S.items;if(!_im||_im.A!==A||_im.n!==A.length){const m=new Map();for(const i of A){const k=String(i.id);if(!m.has(k))m.set(k,i)}_im={A,n:A.length,m}}return _im.m.get(String(id))||{}};
 const no=p=>{const k=p=='ISS'?'PT':p;S.seq[k]=(S.seq[k]||0)+1;return p=='ISS'?'PT'+String(S.seq[k]).padStart(3,'0'):p+'-'+String(S.seq[k]).padStart(4,'0')};
 const led=(type,itemId,qty,ref,n)=>{S.led.push({no:n,date:today(),type,item:+itemId,qty,ref,by:USER});aud(type+' '+(qty>0?'+':'')+qty+' '+(item(itemId).name||''),n)};
 function toast(m,err,ms){const t=$('#toast');t.textContent=m;t.className=err?'err':'';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',ms||2800)}
@@ -456,7 +458,7 @@ const F=k=>`value="${esc(ui.f[k]??'')}" onchange="ui.f['${k}']=this.value"`;
 const opts=(list,v,l,sel,ph)=>(ph?`<option value="">${ph}</option>`:'')+list.map(x=>`<option value="${esc(x[v])}"${x[v]==sel?' selected':''}>${esc(typeof l=='function'?l(x):x[l])}</option>`).join('');
 const SEL=(k,list,l,ph,re)=>`<select onchange="ui.f['${k}']=this.value;${re?'render()':''}">${opts(list,'id',l,ui.f[k],ph)}</select>`;
 const tbl=(h,rows,empty)=>rows.length?`<div class="tw"><table><tr>${h.map(x=>`<th class="${x[0]=='#'?'n':''}">${esc(x.replace(/^#/,''))}</th>`).join('')}</tr>${rows.join('')}</table></div>`:`<div class="empty">${empty}</div>`;
-const flow=id=>{let tot=0,out=0,ret=0;S.led.forEach(l=>{if(l.item!=id)return;if(l.type=='Issue')out-=l.qty;else if(l.type=='Return'||(l.type=='Reversal'&&l.qty>0))ret+=l.qty;else tot+=l.qty});return {tot,out,ret,av:tot-out+ret}};
+const flow=id=>{const o=_lv().f[id]||{tot:0,out:0,ret:0};return {tot:o.tot,out:o.out,ret:o.ret,av:o.tot-o.out+o.ret}};
 const stTag=i=>stock(i.id)<=0?'<span class="tag bad">Out of stock</span>':stock(i.id)<=i.min?'<span class="tag warn">Low stock</span>':'<span class="tag ok">In stock</span>';
 function go(v){if(ME&&!can(v)){if(v!='dash')deny();v=(FLAT().find(n=>can(n[0]))||['dash'])[0]}view=v;ui.f={};ui.lines=[{}];ui.bill=null;ui.fx=1;const g=NAV.find(n=>n[2]&&n[2].some(c=>c[0]==v));ui.og=g?g[0]:'';$('#root').classList.remove('open');scrollTo(0,0);render()}
 const curG=()=>ui.og===undefined?(NAV.find(x=>x[2]&&x[2].some(c=>c[0]==view))||[])[0]:ui.og;
@@ -519,9 +521,9 @@ function doAdj(){if(!can('adj'))return deny();const f=ui.f;if(!f.ai||f.ac===unde
 const d=+f.ac-stock(f.ai);if(!d)return toast('Counted quantity matches the system. No adjustment needed.');led('Adjustment',f.ai,d,'Count: '+f.ar,no('ADJ'));save();ui.f={};toast('Adjustment recorded ('+(d>0?'+':'')+d+').');render()}
 /* Register */
 function vReg(){const bal={},rows=S.led.map(l=>{bal[l.item]=(bal[l.item]||0)+l.qty;return {...l,bal:bal[l.item]}});const r=ui.rf;
-const L=rows.filter(l=>(!r.i||l.item==r.i)&&(!r.t||l.type==r.t)).reverse();
+const AL=rows.filter(l=>(!r.i||l.item==r.i)&&(!r.t||l.type==r.t)).reverse(),L=(r.all||AL.length<=2500)?AL:AL.slice(0,2000);
 return `<h1>Stock Register</h1><div class="row"><div style="min-width:200px"><select onchange="ui.rf.i=this.value;render()">${opts(S.items,'id','name',r.i,'All items')}</select></div><div style="min-width:160px"><select onchange="ui.rf.t=this.value;render()">${opts(['Opening','Purchase','Issue','Return','Adjustment','Reversal'].map(x=>({id:x})),'id','id',r.t,'All types')}</select></div><span class="sp"></span><button class="ghost" onclick="csv('stock-register.csv',[['Date','No','Item','Type','Qty','Balance','Ref','By']].concat(${'L'in window?'':''}regRows()))">Export CSV</button></div>
-<div class="card">${tbl(['Date','No.','Item','Type','#In','#Out','#Balance','Reference','By'],L.map(l=>`<tr><td>${dmy(l.date)}</td><td>${l.no}</td><td>${inm(item(l.item),1)}</td><td>${l.type}</td><td class="n">${l.qty>0?l.qty:''}</td><td class="n">${l.qty<0?-l.qty:''}</td><td class="n">${l.bal}</td><td>${esc(l.ref)}</td><td>${esc(l.by)}</td></tr>`),'No stock movements match these filters.')}</div>`}
+${L.length<AL.length?`<p class="k">Showing the latest ${L.length} of ${AL.length} entries (for speed). <button class="ghost" onclick="ui.rf.all=1;render()">Show all ${AL.length}</button> or filter by item / type above.</p>`:''}<div class="card">${tbl(['Date','No.','Item','Type','#In','#Out','#Balance','Reference','By'],L.map(l=>`<tr><td>${dmy(l.date)}</td><td>${l.no}</td><td>${inm(item(l.item),1)}</td><td>${l.type}</td><td class="n">${l.qty>0?l.qty:''}</td><td class="n">${l.qty<0?-l.qty:''}</td><td class="n">${l.bal}</td><td>${esc(l.ref)}</td><td>${esc(l.by)}</td></tr>`),'No stock movements match these filters.')}</div>`}
 function regRows(){const bal={};return S.led.map(l=>{bal[l.item]=(bal[l.item]||0)+l.qty;return [dmy(l.date),l.no,item(l.item).name,l.type,l.qty,bal[l.item],l.ref,l.by]})}
 /* Masters */
 /* Reports */
@@ -538,16 +540,19 @@ if(kind=='iss'){const x=S.issues.find(i=>i.no==n),e=allEmps().find(i=>i.id==x.em
 else{const b=S.buys.find(i=>i.no==n);h=`<h2>Purchase record ${b.no}</h2><p>${dmy(b.date)}<br>Supplier: <b>${esc(S.sup.find(s=>s.id==b.sup)?.name)}</b> — Invoice ${esc(b.inv)}<br>Status: ${b.status}</p>${tbl(['Item','#Qty','#Rate','#Amount'],b.lines.map(l=>`<tr><td>${esc(item(l.item).name)}</td><td class="n">${l.qty}</td><td class="n">${inr(l.rate)}</td><td class="n">${inr(l.qty*l.rate)}</td></tr>`),'')}<p>Subtotal ${inr(b.sub)} · GST ${b.gst}% · <b>Total ${inr(b.total)}</b></p><div class="sig"><div>Received by</div><div>Authorized by</div></div>`}
 ov.innerHTML=`<div class="rc"><div style="border-bottom:3px solid #f2b705;margin-bottom:12px"><b style="font-size:18px">Poona Travels</b> — Stationery & Inventory</div>${h}<div class="row noprint" style="margin-top:20px"><button class="pri" onclick="window.print()">Print / Save as PDF</button><button class="ghost" onclick="$('#ov').style.display='none'">Close</button></div></div>`;ov.style.display='block'}
 /* ---- storage (Google Sheet if configured, else this browser) ---- */
-async function gsCall(body){
-const r=await fetch(SHEETS_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({key:SHEETS_KEY},body))});
+async function gsCall(body,ms){
+/* every request has a time limit, so one hung request can never freeze saving or live updates */
+const ac=typeof AbortController!='undefined'?new AbortController():null,tm=ac?setTimeout(()=>ac.abort(),ms||30000):0;
+try{const r=await fetch(SHEETS_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({key:SHEETS_KEY},body)),signal:ac?ac.signal:undefined});
 if(!r.ok)throw new Error('HTTP '+r.status);
-const j=await r.json();if(j&&j.error)throw new Error(j.error);return j}
+const j=await r.json();if(j&&j.error)throw new Error(j.error);return j}finally{clearTimeout(tm)}}
 /* small adapter so the existing sync code (revision check + merge) works unchanged on top of Google Sheets */
-const firebase={firestore:()=>({runTransaction:async fn=>{let w=null;const t={get:async()=>FS.get(),set:(_,d)=>{w=d}};await fn(t);
-if(w){const r=await gsCall({action:'set',j:w.j,expect:w.rev-1});if(r.conflict)throw 'conflict'}}})};
+const firebase={firestore:()=>({runTransaction:async fn=>{let w=null;const t={get:async()=>FS.head(),set:(_,d)=>{w=d}};await fn(t);
+if(w){const r=await gsCall({action:'set',j:w.j,expect:w.rev-1},60000);if(r.conflict)throw 'conflict'}}})};
 async function initFB(){if(!SHEETS_URL)return;
 FS={get:async()=>{const r=await gsCall({action:'get'});return {exists:!!r.exists,data:()=>({j:r.j,rev:r.rev})}},
-rev:async()=>(await gsCall({action:'rev'})).rev}}
+rev:async()=>(await gsCall({action:'rev'},15000)).rev,
+head:async()=>{const v=+(await gsCall({action:'rev'},15000)).rev||0;return {exists:v>0,data:()=>({rev:v})}}}}
 /* ---- multi-PC sync: collision-proof ids, 3-way merge, live updates ---- */
 let _lastId=0;
 const nid=()=>{let v=Date.now()*1000+Math.floor(Math.random()*1000);if(v<=_lastId)v=_lastId+1;_lastId=v;return v};
@@ -557,7 +562,7 @@ const _nz=v=>Array.isArray(v)?v.map(_nz):(v&&typeof v=='object')?Object.fromEntr
 function syncMerge(base,local,remote){
 const B=Object.assign(blank(),base||{}),L=local,out=_cl(remote),notes=[],conf=[];
 out.seq=out.seq||{};
-if(L._reset){const o=_cl(L);o.users=out.users;o.audit=(out.audit||[]).concat((L.audit||[]).slice((B.audit||[]).length));o.rev=out.rev;delete o._reset;notes.push('Sample data was cleared.');return {merged:o,notes,conf}}
+if(L._reset){const o=_cl(L);o.users=out.users;o.audit=L._reset=='golive'?(L.audit||[]).slice():(out.audit||[]).concat((L.audit||[]).slice((B.audit||[]).length));o.rev=out.rev;delete o._reset;if(L._reset!='golive')notes.push('Sample data was cleared.');return {merged:o,notes,conf}}
 /* document numbers: move ours past the numbers another PC already used */
 const shift={};for(const p of new Set([...Object.keys(L.seq||{}),...Object.keys(remote.seq||{})])){const b=(B.seq||{})[p]||0,l=(L.seq||{})[p]||0,r=(remote.seq||{})[p]||0;if(l>b&&r>b)shift[p]={from:b,d:r-b};out.seq[p]=r+Math.max(l-b,0)}
 const idm={};
@@ -594,24 +599,28 @@ let base=null,pending=0,saveErr=0,kicked=0,_sr=0,lastTry=null;
 const setBase=()=>{base=S?_cl(S):null};
 function softRender(){clearTimeout(_sr);const a=document.activeElement,r=$('#root');if(ui.busy||(r&&r.querySelector('.wl'))||(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)&&r&&r.contains(a))){_sr=setTimeout(softRender,1500);return}render()}
 function adopt(j){try{S=JSON.parse(j)}catch(e){return}fix();setBase();softRender()}
-function startLive(){if(FS){let busy=0;const tick=async()=>{if(busy||document.hidden||pending||saveErr)return;busy=1;
-try{const v=await FS.rev();if(v>((S&&S.rev)||0)&&!pending&&!saveErr){const d=await FS.get();if(d.exists&&d.data().rev>((S&&S.rev)||0)&&!pending&&!saveErr)adopt(d.data().j)}}catch(e){console.warn('live sync',e)}busy=0};
-setInterval(tick,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()})}
+let _act=Date.now();['click','keydown','touchstart','pointerdown','scroll'].forEach(e=>addEventListener(e,()=>{_act=Date.now()},{passive:true,capture:true}));
+const LIVE_FAST=6000,LIVE_SLOW=20000,LIVE_HIDDEN=60000; /* how often (ms) this screen asks the sheet "did anything change?" */
+function startLive(){if(FS){let busy=0,tm=0;const tick=async()=>{clearTimeout(tm);
+if(!busy&&!document.hidden&&!pending&&!saveErr){busy=1;
+try{const v=await FS.rev();if(v>((S&&S.rev)||0)&&!pending&&!saveErr){const d=await FS.get();if(d.exists&&d.data().rev>((S&&S.rev)||0)&&!pending&&!saveErr)adopt(d.data().j)}}catch(e){console.warn('live sync',e)}busy=0}
+tm=setTimeout(tick,document.hidden?LIVE_HIDDEN:(Date.now()-_act<180000?LIVE_FAST:LIVE_SLOW))};
+tm=setTimeout(tick,LIVE_FAST);document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()});addEventListener('focus',tick);addEventListener('online',tick)}
 else addEventListener('storage',e=>{if(e.key=='ptinv'&&e.newValue&&!pending)adopt(e.newValue)})}
 addEventListener('beforeunload',e=>{if(pending||saveErr){e.preventDefault();e.returnValue=''}});
 addEventListener('online',()=>{if(saveErr)save()});
 function connErr(m){$('#root').innerHTML=box('Cannot connect',`<p style="text-align:center;color:rgba(255,255,255,.8);margin:0 0 18px">${esc(m)}</p><button class="lg-btn" onclick="location.reload()">Try again</button>`,'The app could not reach the server')}
 
-function fix(){const B=blank();for(const k in B)if(S[k]===undefined)S[k]=B[k];if(ME){const u=S.users.find(x=>x.id==ME.id);ME=u&&u.active?u:null;if(!ME)kicked=1}}
+function fix(){const B=blank();for(const k in B)if(S[k]===undefined)S[k]=B[k];if(ME){const u=S.users.find(x=>x.id==ME.id);ME=u&&u.active?u:null;if(!ME){kicked=1;sessClear()}}}
 async function pull(){const d=await FS.get({source:'server'});if(d.exists){S=JSON.parse(d.data().j);S.rev=d.data().rev;fix();setBase()}}
 let q=Promise.resolve();
-function save(){pending++;q=q.then(doSave).catch(e=>console.error('save',e)).then(()=>{pending--})}
-async function doSave(){try{localStorage.setItem('ptinv',JSON.stringify(S))}catch(e){}
-if(!FS)return;
-const sz=JSON.stringify(S).length;if(sz>40000000)toast('Warning: stored data is close to the server size limit. Please contact support.',1,9000);
+let _sq=0;
+/* many quick actions = ONE upload: a queued save always sends the newest data */
+function save(){if(_sq)return;_sq=1;pending++;q=q.then(()=>{_sq=0;return doSave()}).catch(e=>console.error('save',e)).then(()=>{pending--})}
+async function doSave(){if(!FS){try{localStorage.setItem('ptinv',JSON.stringify(S))}catch(e){}return}
 for(let n=0;n<6;n++){let cj=null,rr=0;const cid=Math.random().toString(36).slice(2);
 try{await firebase.firestore().runTransaction(async t=>{const d=await t.get(FS);rr=d.exists?d.data().rev:0;if(rr!==(S.rev||0))throw 'conflict';const o=Object.assign({},S,{rev:rr+1,cids:(S.cids||[]).concat(cid).slice(-30)});delete o._reset;cj=JSON.stringify(o);t.set(FS,{j:cj,rev:rr+1})});
-S.rev=rr+1;S.cids=JSON.parse(cj).cids;base=JSON.parse(cj);delete S._reset;lastTry=null;if(saveErr){saveErr=0;toast('Back online. Your changes are saved.')}return}
+const sj=JSON.parse(cj);S.rev=rr+1;S.cids=sj.cids;base=sj;delete S._reset;lastTry=null;if(cj.length>40000000)toast('Warning: stored data is close to the server size limit. Please contact support.',1,9000);if(saveErr){saveErr=0;toast('Back online. Your changes are saved.')}return}
 catch(e){if(e!=='conflict'){if(cj)lastTry={cid,cj};saveErr=1;toast('Could not save to the server. Check the internet. Retrying…',1);setTimeout(()=>{if(saveErr)save()},8000);return}
 let d=null;try{d=await FS.get({source:'server'})}catch(x){}
 if(!d||!d.exists){saveErr=1;toast('Could not reach the server. Retrying…',1);setTimeout(()=>{if(saveErr)save()},8000);return}
@@ -621,8 +630,10 @@ saveErr=1;toast('Too many changes by other users at once. Please try again.',1)}
 async function load(){
 if(FIREBASE_CONFIG){try{await initFB()}catch(e){FS=null}if(!FS)return connErr('Could not load the connection library. Check the internet and try again.')}
 let j;try{if(FS){const d=await FS.get({source:'server'});if(d.exists){j=d.data().j;var rv=d.data().rev}}else j=localStorage.getItem('ptinv')}catch(e){if(FS)return connErr('Could not reach the server. Check the internet and try again.')}
-let mig=0;if(FS&&!j){try{j=localStorage.getItem('ptinv');if(j)mig=1}catch(e){}}
-if(j){S=JSON.parse(j);if(rv!==undefined)S.rev=rv;if(mig)S.rev=0;fix()}setBase();render();startLive();if(mig&&S){save();toast('Existing data was uploaded to the database.',0,6000)}}
+let mig=0;if(FS&&!j){try{const lj=localStorage.getItem('ptinv');if(lj){if(confirm('The shared database is EMPTY, but this browser has older saved data (possibly test data).\n\nOK = upload it to the database\nCancel = start fresh and discard it')){j=lj;mig=1}else localStorage.removeItem('ptinv')}}catch(e){}}
+if(j){try{S=JSON.parse(j)}catch(e){return connErr('The stored data could not be read. Please contact support before continuing.')}if(rv!==undefined)S.rev=rv;if(mig)S.rev=0;fix()}
+if(FS&&!mig){try{localStorage.removeItem('ptinv')}catch(e){}} /* no private copy of the whole database is kept in the browser */
+setBase();if(S)sessRestore();render();startLive();if(mig&&S){save();toast('Existing data was uploaded to the database.',0,6000)}}
 /* ---- login, setup, passwords ---- */
 async function hash(p,s){if(!(window.crypto&&crypto.subtle))throw new Error('insecure context');const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s+p));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
 const salt=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -641,12 +652,24 @@ const fld=(id,l,t='text')=>`<div style="margin-bottom:10px"><label>${l}</label><
 const val=id=>$('#'+id).value.trim();
 function render(){const r=$('#root');document.documentElement.classList.remove('lgp');
 if(!S||!S.users.length){r.innerHTML=box('First-time setup',lgF('n','user','Full name','Enter your full name')+lgF('u','user','Username','Choose a username','text','','username')+lgF('p','lock','Password','Min 8 characters','password','','new-password')+lgF('p2','lock','Confirm password','Re-enter password','password','','new-password')+`<div class="lg-row"><label><input type="checkbox" id="sm"> Load sample data for testing</label></div><button class="lg-btn" onclick="setup()">Create Super Admin account</button>`,'Create the Super Admin account to begin');return}
-if(!ME){if(kicked){kicked=0;setTimeout(()=>toast('You were signed out because your account was changed or deactivated.',1,6000),50)}let ru='';try{ru=localStorage.getItem('pt_user')||''}catch(e){}
+if(!ME){wipeOv();if(kicked){kicked=0;setTimeout(()=>toast('You were signed out because your account was changed or deactivated.',1,6000),50)}let ru='';try{ru=localStorage.getItem('pt_user')||''}catch(e){}
 r.innerHTML=box('Welcome Back',lgF('u','user','Username','Enter your username','text','value="'+esc(ru)+'"','username')+lgF('p','lock','Password','Enter your password','password','','current-password')+`<div class="lg-row"><label><input type="checkbox" id="rm" ${ru?'checked':''}> Remember me</label><a tabindex="0" onclick="forgotPw()" onkeydown="if(event.key=='Enter')forgotPw()">Forgot Password?</a></div><div class="lg-err" id="lge" role="alert" hidden></div><button class="lg-btn" id="lgb" onclick="login()">${LGI.login}Log In</button>`,'Sign in to your account to continue');$('#u').onkeydown=$('#p').onkeydown=e=>{if(e.key=='Enter')login()};$('#u').oninput=$('#p').oninput=()=>{$('#lge').hidden=true};(ru?$('#p'):$('#u')).focus();return}
 if(ME.must||ui.chg){r.innerHTML=box(ME.must?'Set a new password':'Change password',lgF('p','lock','New password','Min 8 characters','password','','new-password')+lgF('p2','lock','Confirm new password','Re-enter password','password','','new-password')+`<button class="lg-btn" onclick="setPw()">Save password</button> ${ME.must?'':'<button class="lg-btn sec" onclick="ui.chg=0;render()">Cancel</button>'}`,ME.must?'You must change the initial password before continuing.':'');return}
 renderApp()}
 async function setup(){const n=val('n'),u=val('u').toLowerCase(),p=$('#p').value;if(!n||!u)return toast('Enter your name and a username.',1);if(p.length<8)return toast('Password must be at least 8 characters.',1);if(p!==$('#p2').value)return toast('Passwords do not match.',1);
-S=$('#sm').checked?seed():blank();fix();const s=salt();S.users.push({id:nid(),name:n,user:u,role:'super',salt:s,hash:await hash(p,s),active:true,must:false,site:''});ME=S.users[0];aud('Super Admin account created');save();render()}
+S=$('#sm').checked?seed():blank();fix();const s=salt();S.users.push({id:nid(),name:n,user:u,role:'super',salt:s,hash:await hash(p,s),active:true,must:false,site:''});ME=S.users[0];aud('Super Admin account created');save();sessSave();render()}
+/* ---- session: a refresh keeps you signed in if you were active in the last 60 minutes ---- */
+const SESS_KEY='pt_sess',SESS_MIN=60;let _sessT=0;
+const _hp=u=>String(u&&u.hash||'').slice(0,16);
+function sessSave(){try{if(ME)localStorage.setItem(SESS_KEY,JSON.stringify({id:ME.id,h:_hp(ME),v:view,t:Date.now()}))}catch(e){}}
+function sessClear(){try{localStorage.removeItem(SESS_KEY)}catch(e){}}
+function sessTouch(){if(!ME)return;const n=Date.now();if(n-_sessT>15000){_sessT=n;sessSave()}}
+function sessRestore(){try{const r=JSON.parse(localStorage.getItem(SESS_KEY)||'null');if(!r||!S||!S.users)return false;
+if(!(r.t>0)||Date.now()-r.t>SESS_MIN*60000||r.t>Date.now()+120000){sessClear();return false}
+const u=S.users.find(x=>x.id==r.id);if(!u||!u.active||_hp(u)!==r.h){sessClear();return false} /* changed password or deactivated = signed out */
+ME=u;view=(r.v&&can(r.v))?r.v:((FLAT().find(n=>can(n[0]))||['dash'])[0]);_sessT=Date.now();sessSave();idleReset();return true}catch(e){sessClear();return false}}
+['click','keydown','touchstart','scroll'].forEach(e=>addEventListener(e,sessTouch,{passive:true,capture:true}));
+function wipeOv(){const o=$('#ov');if(o){o.style.display='none';o.innerHTML=''}closeDlg(true);const t=$('#tp');if(t)t.classList.remove('o')}
 let fails=0,lock=0;
 function lgErr(m){const e=$('#lge');if(!e)return toast(m,1);e.textContent=m;e.hidden=false;const c=document.querySelector('.lg-card');if(c){c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake')}}
 function lgBusy(on){const b=$('#lgb');if(!b)return;b.disabled=on;b.setAttribute('aria-busy',on);b.innerHTML=on?'<span class="spin"></span>Signing in…':LGI.login+'Log In'}
@@ -659,15 +682,15 @@ ui.busy=1;$('#lge').hidden=true;lgBusy(1);
 try{const t0=Date.now(),x=S.users.find(a=>a.user==u),ok=!!x&&x.hash===await hash(p,x.salt);await sleep(Math.max(0,550-(Date.now()-t0)));ui.busy=0;
 if(!ok){if(++fails>=5){lock=Date.now()+30000;fails=0}lgBusy(0);const pe=$('#p');if(pe){pe.value='';pe.focus()}return lgErr(Date.now()<lock?'Too many attempts. Try again in 30 seconds.':'Wrong username or password.')}
 if(!x.active){lgBusy(0);return lgErr('This account is deactivated. Contact the Super Admin.')}
-fails=0;try{const rm=$('#rm');if(rm&&rm.checked)localStorage.setItem('pt_user',u);else localStorage.removeItem('pt_user')}catch(e){}ME=x;view='dash';aud('Login');save();
+fails=0;try{const rm=$('#rm');if(rm&&rm.checked)localStorage.setItem('pt_user',u);else localStorage.removeItem('pt_user')}catch(e){}ME=x;view='dash';aud('Login');save();sessSave();
 if(ME.must)return render();welcome()}
 catch(e){console.error(e);ui.busy=0;lgBusy(0);lgErr(window.isSecureContext===false?'Please open this app over HTTPS to sign in.':'Something went wrong. Please try again.')}}
 function welcome(){document.documentElement.classList.add('lgp');const fast=reduced(),nm=esc((ME.name||'').trim().split(' ')[0]||'');
 $('#root').innerHTML=`<div class="lg wl" role="status" aria-live="polite"><img src="${LOGO}" alt="PRC Mobility India Pvt Ltd"><div class="hi">Welcome back, <b>${nm}</b></div><div class="sb">Preparing your dashboard…</div><div class="bar"><i></i></div></div>`;
 setTimeout(()=>{if(!ME)return;ui.skel=1;render();setTimeout(()=>{ui.skel=0;ui.fx=1;if(ME)render()},fast?0:700)},fast?400:1500)}
 const skelHtml=()=>`<div class="sk" style="height:26px;width:220px;margin-bottom:18px"></div><div class="d5-kp">${[1,2,3,4,5,6,7,8].map(()=>'<div class="kc" style="cursor:default"><span class="sk" style="display:block;width:46px;height:46px;border-radius:14px;flex:none"></span><span class="kb"><span class="sk" style="display:block;height:12px;width:60%"></span><span class="sk" style="display:block;height:26px;width:45%;margin-top:6px"></span></span></div>').join('')}</div><div class="pnl"><div class="pb">${[1,2,3,4,5].map(()=>'<div class="sk" style="height:16px;margin:14px 0"></div>').join('')}</div></div>`
-function logout(){aud('Logout');save();ME=null;ui={f:{},lines:[{}],tab:'co',rf:{}};render()}
-async function setPw(){const p=$('#p').value;if(p.length<8)return toast('Password must be at least 8 characters.',1);if(p!==$('#p2').value)return toast('Passwords do not match.',1);ME.salt=salt();ME.hash=await hash(p,ME.salt);ME.must=false;ui.chg=0;aud('Password changed');save();toast('Password updated.');render()}
+function logout(){aud('Logout');save();sessClear();clearTimeout(_idle);ME=null;ui={f:{},lines:[{}],tab:'co',rf:{}};wipeOv();render()}
+async function setPw(){const p=$('#p').value;if(p.length<8)return toast('Password must be at least 8 characters.',1);if(p!==$('#p2').value)return toast('Passwords do not match.',1);ME.salt=salt();ME.hash=await hash(p,ME.salt);ME.must=false;ui.chg=0;aud('Password changed');save();sessSave();toast('Password updated.');render()}
 /* ---- users & audit ---- */
 function togUser(id){if(!can('usr'))return deny();const u=S.users.find(x=>x.id==id);if(u.active&&u.role=='super'&&S.users.filter(x=>x.role=='super'&&x.active).length<2)return toast('There must be at least one active Super Admin.',1);u.active=!u.active;aud((u.active?'Activated ':'Deactivated ')+u.user);save();render()}
 async function resetPw(id){if(!can('usr'))return deny();const p=prompt('Enter a new temporary password (min 8 characters):');if(!p)return;if(p.length<8)return toast('Password must be at least 8 characters.',1);const u=S.users.find(x=>x.id==id);u.salt=salt();u.hash=await hash(p,u.salt);u.must=true;aud('Password reset: '+u.user);save();toast('Password reset. The user must change it at next login.');render()}
@@ -726,7 +749,7 @@ const V=ui.skel?skelHtml():{dash,cfg:vCfg,items:vItems,buy:vBuy,buym:vBuym,idrv:
 const pend=can('rq')?S.reqs.filter(r=>r.status=='Pending').length:0,lab=crumb(),ini=esc(initials(ME.name));
 const _a=$('aside'),_s=_a?_a.scrollTop:0,_y=scrollY;$('#root').innerHTML=`<div class="app"><div class="top noprint"><button class="hb" onclick="sbt()" aria-label="Toggle menu">☰</button><a class="brand" tabindex="0" role="link" title="PRC Mobility India Pvt Ltd - Dashboard" onclick="go('dash')" onkeydown="if(event.key=='Enter')go('dash')"><img src="${LOGO}" alt="PRC Mobility India Pvt Ltd"></a>${GS()}<span class="sp"></span>${TT()}${QI()}${pend?`<a class="bell" onclick="go('rq')" title="Pending requests">🔔<i>${pend}</i></a>`:''}${PM(ini)}</div>
 <div class="wrap"><aside class="noprint"><div id="nv">${sidebar()}</div>${S.sample&&can('usr')?`<a onclick="clearSample()" style="margin-top:10px"><svg viewBox="0 0 24 24">${IC.aud}</svg><span class="t">Clear sample data</span></a>`:''}</aside>
-<main class="${ui.fx?'fx':''}"><div class="bc"><a onclick="go('dash')">Home</a><span>›</span>${esc(lab).split(' / ').join('<span>›</span>')}</div>${V}<footer><span>Copyright 2026 Poona Travels. All rights reserved.</span><span>Stationery & Inventory v2.3</span></footer></main></div>${TB()}</div>`;const _b=$('aside');if(_b)_b.scrollTop=_s;if(!ui.fx)scrollTo(0,_y);ui.fx=0}
+<main class="${ui.fx?'fx':''}"><div class="bc"><a onclick="go('dash')">Home</a><span>›</span>${esc(lab).split(' / ').join('<span>›</span>')}</div>${V}<footer><span>Copyright 2026 Poona Travels. All rights reserved.</span><span>Stationery & Inventory v2.4</span></footer></main></div>${TB()}</div>`;const _b=$('aside');if(_b)_b.scrollTop=_s;if(!ui.fx)scrollTo(0,_y);ui.fx=0}
 /* settings: companies, Suppliers, users */
 function vSet(){const T=[['co','Sites / Companies','co'],['su','Suppliers','su'],['cu','Company Users','cu'],['drv','Drivers','drv'],['usr','Users & Roles','usr']].filter(x=>can(x[2])),t=T.some(x=>x[0]==ui.tab)?ui.tab:T[0][0];
 const B={co:()=>`<div class="card" style="margin-bottom:14px"><h2>Add site / company</h2><div class="fg"><div><label>Site / Company name (e.g. WNS Magarpatta)</label><input ${F('a')}></div></div><button class="pri" onclick="addCo()">Save company</button></div><div class="card">${tbl(['Site / Company','#Employees'],S.co.map(c=>`<tr><td>${esc(c.name)}</td><td class="n">${empsOf(c.id).length}</td></tr>`),'No companies yet.')}</div>`,
@@ -1053,7 +1076,7 @@ function cfgSt(){if(!ui.cfg||!ui.cfg.d){const r=(ui.cfg&&ui.cfg.role)||cfgRoles(
 async function cfgPersist(){save();await q;return !saveErr}
 const cfgOK=()=>FS?'':' (Google Sheet is not connected, so this is stored in this browser only)';
 function vCfg(){if(!isSA())return '<h1>Access Denied</h1><div class="card"><p>You do not have permission to open App Configuration.</p></div>';
-const c=cfgSt(),T=[['rp','Role Permissions'],['uo','User Overrides'],['sec','Security & Session'],['al','Audit Log'],['bk','Backup & Restore']],B={rp:cfgRp,uo:cfgUo,sec:cfgSec,al:cfgAl,bk:cfgBk}[c.tab]||cfgRp;
+const c=cfgSt(),T=[['rp','Role Permissions'],['uo','User Overrides'],['sec','Security & Session'],['al','Audit Log'],['bk','Backup & Restore'],['gl','Go Live / Reset']],B={rp:cfgRp,uo:cfgUo,sec:cfgSec,al:cfgAl,bk:cfgBk,gl:cfgGl}[c.tab]||cfgRp;
 return `<h1>App Configuration</h1><div class="row">${T.map(x=>`<button class="${x[0]==c.tab?'pri':'ghost'}" onclick="cfgTab('${x[0]}')">${x[1]}</button>`).join('')}</div>${B()}`}
 function cfgTab(t){if(ui.cfg&&ui.cfg.dirty&&!confirm('Discard unsaved changes?'))return;ui.cfg=Object.assign({},ui.cfg,{tab:t,d:null,dirty:0});render()}
 function cfgRp(){const c=cfgSt(),r=c.role,d=c.d,on=PKEYS.filter(k=>d[k]).length;
@@ -1082,6 +1105,22 @@ aud('Config: user override',u.user+' / '+PLAB[k]+': '+(was===undefined?'inherit'
 function cfgSec(){const s=(S.cfg&&S.cfg.sec)||{};return `<div class="card cfg"><h2>Session timeout</h2><p class="k">Sign users out after this many idle minutes (0 = never). Applies on every device.</p><div class="fg"><div><label>Idle minutes</label><input id="cfgIdle" type="number" min="0" max="1440" value="${+s.idle||0}"></div></div><button class="pri" onclick="cfgSaveSec()">Save</button></div>`}
 async function cfgSaveSec(){if(!isSA())return deny();const m=+$('#cfgIdle').value;if(!Number.isInteger(m)||m<0||m>1440)return toast('Enter a whole number from 0 to 1440.',1);S.cfg=S.cfg||{};S.cfg.sec=Object.assign({},S.cfg.sec,{idle:m});aud('Config: session timeout',m+' minutes');if(await cfgPersist()){toast('Saved.'+cfgOK());idleReset()}else toast('Could NOT save to the server. Retrying…',1)}
 function cfgAl(){const L=S.audit.filter(x=>/^Config:/.test(x.a)).slice(-300).reverse();return `<div class="card">${tbl(['Date','Time','By','Action','Detail'],L.map(x=>`<tr><td>${dmy(x.d)}</td><td>${x.t}</td><td>${esc(x.by)}</td><td>${esc(x.a)}</td><td>${esc(x.r)}</td></tr>`),'No configuration changes recorded yet.')}<p class="k">Read-only in the app. These entries live in the shared app data, so they are not tamper-proof against someone with direct database access.</p></div>`}
+/* ---- Go Live: remove test data from the shared database (Super Admin only) ---- */
+function cfgGl(){const n=k=>(S[k]||[]).length,row=(a,b)=>`<div class="pr"><span>${a}</span><b>${b}</b></div>`;
+return `<div class="card cfg"><h2>Go live: clear test data</h2><p class="k">Use this once, before real work starts. It permanently removes the test records from the shared Google Sheet database for <b>every</b> user. A full backup file is downloaded automatically first.</p>
+${row('Purchases',n('buys'))+row('Issues / receipts',n('issues'))+row('Requests',n('reqs'))+row('Stock register entries',n('led'))+row('Items / Suppliers / Sites / Drivers / Company users',n('items')+' / '+n('sup')+' / '+n('co')+' / '+n('drv')+' / '+n('cu'))}
+<label class="tr" style="margin-top:12px"><span>Also delete master data (items, suppliers, sites / companies, drivers, company users)</span><span class="tg"><input type="checkbox" id="glM"><i></i></span></label>
+<p class="k">Always kept: all login accounts and App Configuration. Every kept item starts again at stock 0, and document numbers restart (PUR-0001, PT001 ...). Ask all other users to refresh or close the app before you continue.</p>
+<button class="dgd" onclick="glAsk()">Clear test data…</button></div>`}
+function glAsk(){if(!isSA())return deny();ui.glm=!!($('#glM')&&$('#glM').checked);
+dlg('Clear test data',`<p>This will permanently delete all purchases, issues, requests, stock entries and the audit log${ui.glm?', <b>and all master data</b>':' (master data is kept)'}.</p><p class="k" style="margin:8px 0">A backup file will be downloaded first. Type <b>CLEAR</b> to confirm.</p><input id="glc" autocomplete="off" placeholder="CLEAR">`,
+`<button class="ghost" onclick="closeDlg()">Cancel</button><button class="dgd" onclick="glGo()">Delete test data</button>`);const e=$('#glc');if(e)e.focus()}
+async function glGo(){if(!isSA())return deny();if(val('glc')!=='CLEAR')return toast('Type CLEAR to confirm.',1);
+try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));a.download='backup-before-go-live-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}catch(e){return toast('Could not create the backup file. Nothing was deleted.',1)}
+const old=S,full=!!ui.glm;closeDlg(true);S=blank();S.users=old.users;S.cfg=old.cfg;S.rev=old.rev;S.cids=old.cids;S.nid=old.nid;
+if(!full)['co','sites','emp','sup','items','cu','drv'].forEach(k=>S[k]=old[k]);
+S._reset='golive';aud('Go-live reset: test data cleared',(full?'including master data':'master data kept')+' / by '+USER);
+ui.f={};ui.lines=[{}];ui.cfg=null;save();await q;if(saveErr)toast('Could NOT save to the server yet. It will keep retrying; do not close this page.',1,9000);else toast('Test data cleared. The database is ready for real work.',0,6000);render()}
 function cfgBk(){return `<div class="card cfg"><h2>Backup</h2><p class="k">Downloads permission settings only (no stock data, no passwords).</p><button class="pri" onclick="cfgDl()">Download configuration (.json)</button><h2 style="margin-top:18px">Restore</h2><p class="k">Replaces the current permission settings after validation.</p><input type="file" accept=".json,application/json" onchange="cfgRestore(this)"></div>`}
 function cfgDl(){if(!isSA())return deny();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({app:'ptinv-config',v:1,cfg:S.cfg||{roles:{},ov:{},sec:{}}},null,1)],{type:'application/json'}));a.download='app-configuration-'+today()+'.json';a.click();aud('Config: backup downloaded');save()}
 async function cfgRestore(inp){if(!isSA()){inp.value='';return deny()}const f=inp.files&&inp.files[0];if(!f)return;let j;try{j=JSON.parse(await f.text())}catch(e){inp.value='';return toast('This is not a valid configuration file.',1)}
@@ -1097,7 +1136,7 @@ const _ra=renderApp;renderApp=function(){_ra();if(!can('exp'))document.querySele
 const _pr=window.print.bind(window);window.print=()=>can('prt')?_pr():deny();
 let _idle=0;function idleReset(){clearTimeout(_idle);const m=+((S&&S.cfg&&S.cfg.sec&&S.cfg.sec.idle)||0);if(ME&&m>0)_idle=setTimeout(()=>{if(ME){logout();toast('Signed out due to inactivity.',1,6000)}},m*60000)}
 ['click','keydown','touchstart'].forEach(e=>addEventListener(e,idleReset,{passive:true}));
-load();
+setTimeout(load,0);
 /* suggestion dropdown */
 (()=>{const sg=document.createElement('div');sg.id='sg';document.body.appendChild(sg);let cur=null,items=[],ix=-1;
 const hide=()=>{sg.style.display='none';cur=null};
