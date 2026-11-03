@@ -497,8 +497,89 @@ const act=(can('buy')?`<button class="pri" onclick="go('buy')"><svg class="bi" v
 return `<div class="d5-hd"><div><h1>Dashboard</h1><p class="d5-sub"><span>${esc(dl)}</span><span class="d5-hs"><i class="dot ${hc}"></i>${hs}</span></p></div><div class="d5-act">${act}</div></div><div class="d5-kp">${KP.join('')}</div><div class="pnl">${PN[dk]()}</div>
 `}
 /* Inventory */
-function addItem(){if(!can('item'))return deny();const f=ui.f;if(!f.n||!f.c)return toast('Enter an item name and a unique code.',1);if(S.items.some(i=>i.code.toLowerCase()==f.c.toLowerCase()))return toast('That item code already exists.',1);
-const id=nid();S.items.push({id,code:f.c,name:f.n,unit:f.u||'Nos',min:+f.m||0,rate:+f.r||0});if(+f.o>0)led('Opening',id,+f.o,'Opening balance',no('OPN'));save();ui.f={};toast('Item saved.');render()}
+function addItem(){if(!can('item'))return deny();const f=ui.f,nm=String(f.n||'').replace(/\s+/g,' ').trim();if(!nm)return toast('Enter an item name.',1);
+if(findItem(nm))return toast('An item with this name already exists.',1);
+const code=String(f.c||'').trim()||newCode();if(S.items.some(i=>String(i.code).toLowerCase()==code.toLowerCase()))return toast('That item code already exists.',1);
+const id=nid();S.items.push({id,code,name:nm,unit:f.u||'Nos',min:+f.m||0,rate:+f.r||0});if(+f.o>0)led('Opening',id,+f.o,'Opening balance',no('OPN'));aud('Item added',nm+' ('+code+')');save();ui.f={};toast('Item saved. Code: '+code);render()}
+/* ---- inventory: import items from Excel (any sheet), edit, delete ---- */
+function _rowsFrom(xml,ss){const rows=[];[..._xml(xml).getElementsByTagName('row')].forEach(row=>{const r=[];[...row.getElementsByTagName('c')].forEach((c,i)=>{const x=c.getAttribute('r')?_colN(c.getAttribute('r')):i,t=c.getAttribute('t'),ve=c.getElementsByTagName('v')[0];let val='';
+if(t=='inlineStr')val=[...c.getElementsByTagName('t')].map(a=>a.textContent).join('');
+else if(ve){val=ve.textContent;if(t=='s')val=ss[+val]||''}
+r[x]=val});
+const ri=row.getAttribute('r')?+row.getAttribute('r')-1:rows.length;rows[ri]=Array.from(r,x=>x===undefined?'':x)});
+return Array.from(rows,r=>r||[])}
+async function readBook(file){const nm=file.name.toLowerCase();
+if(nm.endsWith('.csv'))return [{name:'CSV',rows:await readSheet(file)}];
+if(!nm.endsWith('.xlsx'))throw new Error('type');
+if(typeof DecompressionStream=='undefined')throw new Error('nostream');
+const z=await _unzip(await file.arrayBuffer());
+const ss=z['xl/sharedStrings.xml']?[..._xml(z['xl/sharedStrings.xml']).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
+let list=[];
+try{const rel={};[..._xml(z['xl/_rels/workbook.xml.rels']).getElementsByTagName('Relationship')].forEach(e=>{rel[e.getAttribute('Id')]='xl/'+(e.getAttribute('Target')||'').replace(/^\/?(xl\/)?/,'')});
+[..._xml(z['xl/workbook.xml']).getElementsByTagName('sheet')].forEach(s=>{const id=s.getAttribute('r:id')||s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');if(rel[id]&&z[rel[id]])list.push({name:s.getAttribute('name')||('Sheet '+(list.length+1)),key:rel[id]})})}catch(e){}
+if(!list.length)list=Object.keys(z).filter(k=>/worksheets/.test(k)).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map((k,i)=>({name:'Sheet '+(i+1),key:k}));
+if(!list.length)throw new Error('empty');
+return list.map(s=>({name:s.name,rows:_rowsFrom(z[s.key],ss)}))}
+const _tc=s=>{s=String(s??'').replace(/\s+/g,' ').trim();if(s&&!/[a-z]/.test(s)&&(s.length>3||/^[A-Z]{1,3}$/.test(s)&&!/^(CPU|ID|DVD|USB|LED|TV|UPS|PVC|HP|HD|PC)$/.test(s)))s=s.toLowerCase().replace(/(^|[\s(\/-])([a-z])/g,(m,a,b)=>a+b.toUpperCase());return s};
+const _num=v=>{const n=parseFloat(String(v??'').replace(/[₹,\s]/g,''));return isFinite(n)?n:0};
+/* Reads a sheet: header row (SR.NO / PRODUCT NAME / optional Unit, Rate, Code, Opening). A row without a number that is followed by a row numbered 1 is a group heading (e.g. PEN); numbered rows below it become "Heading - Name". */
+function _itmParse(rows0){const rows=rows0.map((r,i)=>({r,i:i+1})).filter(x=>x.r.some(c=>String(c??'').trim()));
+const col={n:0,s:-1,c:-1,u:-1,r:-1,o:-1};let st=0,blankHdr=false;
+for(let k=0;k<Math.min(5,rows.length);k++){const hd=rows[k].r.map(c=>String(c??'').toLowerCase().replace(/[^a-z0-9]/g,'')),n=hd.findIndex(x=>/product|item|name|particular|description/.test(x)&&!/code/.test(x));
+if(n>=0){const f=re=>hd.findIndex(x=>re.test(x));col.n=n;col.s=f(/^(sr|srno|sno|no|slno|serial|serialno)$/);col.c=f(/code/);col.u=f(/unit|uom/);col.r=f(/rate|price|mrp|cost/);col.o=f(/opening/);st=k+1;blankHdr=rows[k].r.slice(n+1).every(c=>!String(c??'').trim());break}}
+const data=rows.slice(st),L=[],seen=new Set();let cat='',dup=0;
+data.forEach((x,k)=>{const r=x.r,raw=_tc(r[col.n]);if(!raw)return;const sr=col.s>=0?String(r[col.s]??'').trim():'';let name=raw;
+if(col.s>=0&&!sr){const nx=data[k+1];if(nx&&_num(nx.r[col.s])==1&&String(nx.r[col.n]??'').trim()){cat=raw;return}}
+else if(col.s>=0&&sr&&cat&&!/^(other|others|office stationa?r?y|c\/a|computer accessories)$/i.test(cat)&&!raw.toLowerCase().includes(cat.toLowerCase()))name=cat+' - '+raw;
+let rate=col.r>=0?_num(r[col.r]):0;if(col.r<0&&blankHdr)for(let j=col.n+1;j<r.length;j++){const v=_num(r[j]);if(v>0){rate=v;break}}
+const un=col.u>=0?_tc(r[col.u]):'',unit=un?(UN.find(u=>u.toLowerCase()==un.toLowerCase())||un):'Nos',key=name.toLowerCase();
+if(seen.has(key)){dup++;return}seen.add(key);
+L.push({name,rate,unit,code:col.c>=0?String(r[col.c]??'').trim():'',open:col.o>=0?Math.max(0,_num(r[col.o])):0})});
+return {L,dup}}
+function _genCodes(n,used){let k=0;S.items.forEach(i=>{const m=/^ITM-(\d+)$/i.exec(i.code);if(m)k=Math.max(k,+m[1])});const out=[];while(out.length<n){k++;const c='ITM-'+String(k).padStart(3,'0');if(!used.has(c.toLowerCase())){used.add(c.toLowerCase());out.push(c)}}return out}
+let _itm=null;
+function itmTemplate(){xlsx('item-import-template.xlsx',[['Item name','Unit','Default rate (₹)','Opening stock'],['Ball Pen','Nos',10,0]],'Items')}
+async function itmImportFile(inp){const fl=inp.files&&inp.files[0];if(!fl)return;if(!can('item')){inp.value='';return deny()}
+let book;try{book=await readBook(fl)}catch(e){inp.value='';console.error(e);return toast(e.message=='type'?'Please choose an .xlsx or .csv file. (Old .xls files: open in Excel and Save As .xlsx.)':e.message=='nostream'?'This browser cannot read .xlsx. Save the sheet as .csv and import that, or use Chrome / Edge.':'Could not read this file. Please check that it is a valid Excel (.xlsx) or CSV file.',1,6000)}
+inp.value='';const P=book.map(b=>_itmParse(b.rows));let best=0;P.forEach((p,i)=>{if(p.L.length>P[best].L.length)best=i});
+if(!P[best].L.length)return toast('No item names found. The sheet needs a column with the item names (e.g. PRODUCT NAME).',1,6000);
+_itm={book,P,sel:best};itmPreview()}
+function itmPreview(){if(!_itm)return;const {book,P,sel}=_itm,p=P[sel],have=new Set(S.items.map(i=>String(i.name).trim().toLowerCase())),add=p.L.filter(x=>!have.has(x.name.toLowerCase())),skip=p.L.length-add.length;_itm.add=add;
+const row=(a,b)=>`<div class="pr"><span>${a}</span><b>${b}</b></div>`;
+const pick=book.length>1?`<div style="margin-bottom:10px"><label>Sheet to import</label><select onchange="_itm.sel=+this.value;itmPreview()">${book.map((b,i)=>`<option value="${i}" ${i==sel?'selected':''}>${esc(b.name)} (${P[i].L.length} items)</option>`).join('')}</select></div>`:'';
+const used=new Set(S.items.map(i=>String(i.code).toLowerCase())),codes=_genCodes(Math.min(8,add.length),used);
+const smp=add.slice(0,8).map((x,i)=>`<tr><td>${esc(x.code||codes[i])}</td><td>${esc(x.name)}</td><td>${esc(x.unit)}</td><td class="n">${x.rate?inr(x.rate):'-'}</td></tr>`);
+dlg('Import items',pick+row('New items to add',add.length)+row('Already in inventory (skipped)',skip)+row('Repeated names in file (skipped)',p.dup)+(add.length?`<p class="k" style="margin:8px 0 4px">First ${smp.length} items:</p>`+tbl(['Code','Item','Unit','#Rate'],smp,''):'')+`<p class="k" style="margin-top:8px">Item codes are generated automatically. Edit any item afterwards to enter its opening stock or fix a rate.</p>`,
+`<button class="ghost" onclick="closeDlg()">Cancel</button><button class="pri" data-f ${add.length?'':'disabled'} onclick="itmImportGo()">OK, import ${add.length} items</button>`)}
+function itmImportGo(){closeDlg(true);if(!can('item'))return deny();if(!_itm||!_itm.add)return;const add=_itm.add;_itm=null;
+const have=new Set(S.items.map(i=>String(i.name).trim().toLowerCase())),used=new Set(S.items.map(i=>String(i.code).toLowerCase())),fresh=add.filter(x=>!have.has(x.name.toLowerCase()));
+fresh.forEach(x=>{if(x.code&&!used.has(x.code.toLowerCase()))used.add(x.code.toLowerCase());else x.code=''});
+const gen=_genCodes(fresh.filter(x=>!x.code).length,used);let g=0;
+fresh.forEach(x=>{const id=nid(),code=x.code||gen[g++];S.items.push({id,code,name:x.name,unit:x.unit||'Nos',min:0,rate:x.rate||0});if(x.open>0)led('Opening',id,x.open,'Opening balance',no('OPN'))});
+aud('Items imported',fresh.length+' added');save();toast(fresh.length+' items imported. Use Edit to enter opening stock.');render()}
+const _opn=id=>S.led.reduce((a,l)=>l.item==id&&l.type=='Opening'?a+l.qty:a,0);
+function itmEdit(id){if(!can('item'))return deny();const i=S.items.find(x=>x.id==id);if(!i)return;const us=UN.includes(i.unit)?UN:UN.concat([i.unit]);
+dlg('Edit item',fld('ei_n','Item name *')+fld('ei_c','Item code *')+`<div style="margin-bottom:10px"><label>Unit</label><select id="ei_u">${us.map(u=>`<option ${u==i.unit?'selected':''}>${esc(u)}</option>`).join('')}</select></div>`+fld('ei_r','Default rate (₹)','number')+fld('ei_o','Opening stock','number')+fld('ei_m','Low-stock alert level','number')+`<p class="k">Current stock: <b>${stock(i.id)}</b>. Changing the opening stock changes the current stock by the same difference.</p>`,
+`<button class="ghost" onclick="closeDlg()">Cancel</button><button class="pri" onclick="itmEditSave(${id})">Save</button>`);
+$('#ei_n').value=i.name;$('#ei_c').value=i.code;$('#ei_r').value=i.rate||0;$('#ei_o').value=_opn(i.id);$('#ei_m').value=i.min||0;['ei_r','ei_o','ei_m'].forEach(k=>{$('#'+k).min=0;$('#'+k).step='any'});$('#ei_n').focus()}
+function itmEditSave(id){if(!can('item'))return deny();const i=S.items.find(x=>x.id==id);if(!i){closeDlg(true);return toast('This item no longer exists.',1)}
+const n=val('ei_n').replace(/\s+/g,' '),c=val('ei_c'),u=$('#ei_u').value,r=+val('ei_r')||0,o=+val('ei_o')||0,m=+val('ei_m')||0;
+if(!n||!c)return toast('Enter the item name and code.',1);
+if(r<0||o<0||m<0)return toast('Rate and stock cannot be negative.',1);
+if(S.items.some(x=>x.id!=id&&String(x.name).trim().toLowerCase()==n.toLowerCase()))return toast('Another item with this name already exists.',1);
+if(S.items.some(x=>x.id!=id&&String(x.code).toLowerCase()==c.toLowerCase()))return toast('Another item already has this code.',1);
+const cur=_opn(id),d=o-cur;if(d&&stock(id)+d<0)return toast('Cannot lower the opening stock that much: current stock is only '+stock(id)+'.',1);
+const ch=[];if(i.name!=n)ch.push('name');if(i.code!=c)ch.push('code');if(i.unit!=u)ch.push('unit');if((+i.rate||0)!=r)ch.push('rate');if((+i.min||0)!=m)ch.push('alert level');
+Object.assign(i,{name:n,code:c,unit:u,rate:r,min:m});
+if(d){led('Opening',id,d,cur?'Opening corrected: '+cur+' to '+o:'Opening balance',no('OPN'));ch.push('opening stock '+cur+' to '+o)}
+closeDlg(true);if(!ch.length)return toast('No changes.');
+aud('Item edited',n+' ('+ch.join(', ')+')');save();toast('Item updated.');render()}
+const _itmUsed=id=>S.led.some(l=>l.item==id&&l.type!='Opening')||S.buys.some(b=>(b.lines||[]).some(l=>l.item==id))||S.issues.some(x=>(x.lines||[]).some(l=>l.item==id))||S.reqs.some(r=>(r.lines||[]).some(l=>l.item==id));
+function itmDel(id){if(!can('item'))return deny();const i=S.items.find(x=>x.id==id);if(!i)return;
+if(_itmUsed(id))return dlg('Cannot delete',`<p><b>${esc(i.name)}</b> already has purchases, issues or requests, so it cannot be deleted (its history must stay correct).</p><p class="k" style="margin-top:8px">If the name, code or rate is wrong, use Edit to correct it.</p>`,`<button class="pri" data-f onclick="closeDlg()">OK</button>`);
+const o=_opn(id);dlg('Delete item',`<p>Delete <b>${esc(i.name)}</b> (${esc(i.code)})?</p>${o?`<p class="k" style="margin-top:8px">Its opening stock of ${o} will also be removed.</p>`:''}`,`<button class="ghost" onclick="closeDlg()">Cancel</button><button class="dgd" onclick="itmDelGo(${id})">Delete</button>`)}
+function itmDelGo(id){closeDlg(true);if(!can('item'))return deny();const i=S.items.find(x=>x.id==id);if(!i)return;if(_itmUsed(id))return toast('This item now has activity and cannot be deleted.',1);
+S.items=S.items.filter(x=>x.id!=id);S.led=S.led.filter(l=>!(l.item==id&&l.type=='Opening'));aud('Item deleted',i.name+' / '+i.code);save();toast('Item deleted.');render()}
 /* Purchases */
 function lineRows(kind){const dup=new Set(S.items.map(x=>String(x.name).trim().toLowerCase())).size!==S.items.length;
 const dl=dup?'':`<datalist id="il2">${S.items.map(x=>`<option value="${esc(x.name)}">${kind=='issue'?'In stock: '+stock(x.id)+' '+esc(x.unit):esc(x.unit)}</option>`).join('')}</datalist>`;
@@ -704,9 +785,10 @@ x.rev={by:USER,why,date:today(),no:r};aud('Reversed '+n,why);save();toast('Rever
 function vItems(){const q=(ui.q||'').toLowerCase();const L=S.items.filter(i=>(i.name+i.code).toLowerCase().includes(q));
 const tu=S.items.reduce((a,i)=>a+stock(i.id),0),tv=S.items.reduce((a,i)=>a+stock(i.id)*i.rate,0);
 return `<h1>Inventory</h1><div class="cards"><div class="card"><div class="k">Items in inventory</div><div class="v">${S.items.length}</div></div><div class="card"><div class="k">Total stock (units)</div><div class="v">${tu}</div></div><div class="card"><div class="k">Total stock value</div><div class="v">${inr(tv)}</div></div></div>
-<div class="row"><input style="max-width:280px" placeholder="Search by name or code" value="${esc(ui.q||'')}" oninput="ui.q=this.value;render();document.querySelector('main input[placeholder^=Search]').focus()"><span class="sp"></span></div>
-<div class="card">${tbl(['Code','Item','Unit','#Total stock','#Available','#Out / issued','#Returned','#Rate','#Value','Status'],L.map(i=>{const f=flow(i.id);return `<tr><td>${esc(i.code)}</td><td>${inm(i,1)}</td><td>${i.unit}</td><td class="n">${f.tot}</td><td class="n"><b>${f.av}</b></td><td class="n">${f.out}</td><td class="n">${f.ret}</td><td class="n">${inr(i.rate)}</td><td class="n">${inr(f.av*i.rate)}</td><td>${stTag(i)}</td></tr>`}),'No items yet. Items appear here automatically when you save a purchase.')}</div>
-<div class="card" ${can('item')?'':'hidden'} style="margin-top:14px"><h2>Add item manually (optional)</h2><div class="fg"><div><label>Item name</label><input ${F('n')}></div><div><label>Item code (unique)</label><input ${F('c')}></div><div><label>Unit</label><select onchange="ui.f.u=this.value">${UN.map(u=>`<option>${u}</option>`).join('')}</select></div><div><label>Default rate (₹)</label><input type="number" min="0" ${F('r')}></div><div><label>Opening stock</label><input type="number" min="0" ${F('o')}></div></div><button class="pri" onclick="addItem()">Save item</button></div>`}
+<div class="row"><input style="max-width:280px" placeholder="Search by name or code" value="${esc(ui.q||'')}" oninput="ui.q=this.value;render();document.querySelector('main input[placeholder^=Search]').focus()"><span class="sp"></span><button class="ghost" ${can('item')?'':'hidden'} onclick="document.getElementById('itmImp').scrollIntoView({behavior:'smooth'})">Import / add items</button></div>
+<div class="card">${tbl(['Code','Item','Unit','#Total stock','#Available','#Out / issued','#Returned','#Rate','#Value','Status',''],L.map(i=>{const f=flow(i.id);return `<tr><td>${esc(i.code)}</td><td>${inm(i,1)}</td><td>${i.unit}</td><td class="n">${f.tot}</td><td class="n"><b>${f.av}</b></td><td class="n">${f.out}</td><td class="n">${f.ret}</td><td class="n">${inr(i.rate)}</td><td class="n">${inr(f.av*i.rate)}</td><td>${stTag(i)}</td><td style="white-space:nowrap">${can('item')?`<button class="ghost" onclick="itmEdit(${i.id})">Edit</button> <button class="ghost" onclick="itmDel(${i.id})">Delete</button>`:''}</td></tr>`}),'No items yet. Import your Excel list below, or items appear here automatically when you save a purchase.')}</div>
+<div class="card" id="itmImp" ${can('item')?'':'hidden'} style="margin-top:14px"><h2>Import items from Excel</h2><p class="k">Upload your Excel (.xlsx) or CSV item list. Only the item name is needed: the item code is generated automatically, the unit is set to Nos, and the rate is taken from the sheet when it has one. Opening stock is entered here after the import (use Edit on each item), or imported too if the file has an "Opening stock" column.</p><div class="row"><input type="file" accept=".xlsx,.csv" style="max-width:320px" onchange="itmImportFile(this)"><button class="ghost" onclick="itmTemplate()">Download template</button></div></div>
+<div class="card" ${can('item')?'':'hidden'} style="margin-top:14px"><h2>Add item manually (optional)</h2><div class="fg"><div><label>Item name</label><input ${F('n')}></div><div><label>Item code (auto if blank)</label><input ${F('c')}></div><div><label>Unit</label><select onchange="ui.f.u=this.value">${UN.map(u=>`<option>${u}</option>`).join('')}</select></div><div><label>Default rate (₹)</label><input type="number" min="0" ${F('r')}></div><div><label>Opening stock</label><input type="number" min="0" ${F('o')}></div></div><button class="pri" onclick="addItem()">Save item</button></div>`}
 /* ---- purchases: type supplier and items, upload bill, stock updates automatically ---- */
 const UN=['Nos','Packets','Boxes','Reams','Sets','Bottles','Kg','Litres'];
 const newCode=()=>{let k=S.items.length+1;while(S.items.some(x=>x.code=='ITM-'+String(k).padStart(3,'0')))k++;return 'ITM-'+String(k).padStart(3,'0')};
@@ -877,7 +959,7 @@ for(let i=u.length-22;i>=Math.max(0,u.length-70000);i--)if(v.getUint32(i,true)==
 if(e<0)throw new Error('zip');let n=v.getUint16(e+10,true),o=v.getUint32(e+16,true);
 for(let k=0;k<n;k++){if(v.getUint32(o,true)!=0x02014b50)break;const m=v.getUint16(o+10,true),cs=v.getUint32(o+20,true),nl=v.getUint16(o+28,true),el=v.getUint16(o+30,true),cl=v.getUint16(o+32,true),lo=v.getUint32(o+42,true),name=td.decode(u.subarray(o+46,o+46+nl));
 const ds=lo+30+v.getUint16(lo+26,true)+v.getUint16(lo+28,true),raw=u.subarray(ds,ds+cs);
-if(/^xl\/(worksheets\/sheet\d+|sharedStrings)\.xml$/.test(name))out[name]=td.decode(m==0?raw:await _inflate(raw));
+if(/^xl\/(worksheets\/sheet\d+\.xml|sharedStrings\.xml|workbook\.xml|_rels\/workbook\.xml\.rels)$/.test(name))out[name]=td.decode(m==0?raw:await _inflate(raw));
 o+=46+nl+el+cl}return out}
 function _xml(t){return new DOMParser().parseFromString(t,'application/xml')}
 function _colN(ref){let n=0;const m=String(ref).match(/^[A-Z]+/);if(!m)return 0;for(const c of m[0])n=n*26+c.charCodeAt(0)-64;return n-1}
